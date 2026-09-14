@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>kalman-forge · 卡尔曼滤波与平滑实验室</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --line:#e3e6ec; --ink:#1c2028; --dim:#6b7280;
+    --blue:#2563eb; --green:#059669; --red:#dc2626; --amber:#d97706; --purple:#7c3aed;
+    --band:#dbeafe; --band2:#d1fae5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+  header{padding:22px 28px 14px;border-bottom:1px solid var(--line);background:var(--card)}
+  h1{margin:0;font-size:19px;letter-spacing:.2px}
+  header p{margin:6px 0 0;color:var(--dim);font-size:12.5px;max-width:900px}
+  main{padding:18px 28px 40px;max-width:1320px;margin:0 auto}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px}
+  .row{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+  .row.tight{gap:8px}
+  label{font-size:12.5px;color:var(--dim);display:block;margin-bottom:3px}
+  select,button{font:inherit;font-size:13px;padding:6px 12px;border-radius:7px;border:1px solid var(--line);
+                background:#fff;color:var(--ink);cursor:pointer}
+  button:hover{border-color:var(--blue);color:var(--blue)}
+  button.primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+  button.primary:hover{filter:brightness(1.08);color:#fff}
+  button:disabled{opacity:.55;cursor:default}
+  input[type=range]{width:150px;vertical-align:middle}
+  .val{font-variant-numeric:tabular-nums;color:var(--ink);font-size:12.5px;min-width:52px;display:inline-block}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:16px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .card h3{margin:0 0 8px;font-size:13.5px;font-weight:600}
+  .card .note{color:var(--dim);font-size:11.5px;margin-top:6px}
+  canvas{width:100%;height:220px;display:block}
+  .stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .stat{background:#f2f4f8;border-radius:7px;padding:6px 10px;font-size:12px;min-width:112px}
+  .stat b{display:block;font-size:14px;font-variant-numeric:tabular-nums}
+  .stat span{color:var(--dim);font-size:11px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:500;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px}
+  td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .ok{color:var(--green);font-weight:600}
+  .bad{color:var(--red);font-weight:600}
+  code{background:#f2f4f8;padding:1px 5px;border-radius:4px;font-size:12px}
+  .warn{background:#fffbeb;border:1px solid #fcd34d;color:#92400e;border-radius:7px;padding:7px 11px;font-size:12.5px;margin-top:10px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--dim);margin-top:4px}
+  .legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  footer{color:var(--dim);font-size:11.5px;padding:0 28px 30px}
+</style>
+</head>
+<body>
+<header>
+  <h1>kalman-forge · 卡尔曼滤波与平滑实验室</h1>
+  <p>线性高斯状态空间模型的精确贝叶斯推断：卡尔曼滤波（递推）↔ 块三对角全局后验（批处理）两条独立数值路径互相对拍，
+     RTS 平滑、信息滤波、DARE 稳态、EM 学习噪声参数、粒子滤波 Monte-Carlo 收敛到滤波解。零依赖单文件，浏览器内一键自检。</p>
+</header>
+
+<main>
+  <section class="panel">
+    <div class="row">
+      <div>
+        <label>场景</label>
+        <select id="sel-scene">
+          <option value="rw">1D 随机游走（n=1, m=1）</option>
+          <option value="cv" selected>1D 位置+速度（n=2, m=1）</option>
+          <option value="radar">2D 雷达跟踪（n=4, m=2）</option>
+        </select>
+      </div>
+      <div>
+        <label>真实过程噪声 q</label>
+        <input type="range" id="inp-q" min="-3" max="1" step="0.05" value="-1">
+        <span class="val" id="v-q"></span>
+      </div>
+      <div>
+        <label>真实观测噪声 r</label>
+        <input type="range" id="inp-r" min="-2" max="2" step="0.05" value="0">
+        <span class="val" id="v-r"></span>
+      </div>
+      <div>
+        <label>滤波器假设的噪声倍率（≠1 → 模型误配）</label>
+        <input type="range" id="inp-mis" min="-1" max="1.5" step="0.05" value="0">
+        <span class="val" id="v-mis"></span>
+      </div>
+      <div class="row tight">
+        <button class="primary" id="btn-run">重新采样并滤波</button>
+        <button id="btn-em">EM 学习 Q,R</button>
+      </div>
+    </div>
+    <div id="miswarn"></div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h3 id="h-main">状态轨迹</h3>
+      <canvas id="cv-main"></canvas>
+      <div class="legend">
+        <span><i style="background:#9ca3af"></i>真值</span>
+        <span><i style="background:#dc2626"></i>观测</span>
+        <span><i style="background:#2563eb"></i>滤波</span>
+        <span><i style="background:#059669"></i>RTS 平滑</span>
+        <span><i style="background:#dbeafe"></i>±2σ 滤波带</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>新息 ν（观测 − 一步预测）与 ±2√S 带</h3>
+      <canvas id="cv-inn"></canvas>
+      <div class="note">最优滤波器的新息必须是零均值白噪声，且样本方差与理论 S 一致。新息出现结构 = 模型误配。</div>
+    </div>
+    <div class="card">
+      <h3>归一化新息平方 NIS = νᵀS⁻¹ν 与 χ² 95% 区间</h3>
+      <canvas id="cv-nis"></canvas>
+      <div class="note" id="nis-note">模型正确时 NIS 应落在 χ²(m) 的 95% 区间内（约 95% 的点）。</div>
+    </div>
+    <div class="card">
+      <h3>估计误差 |x̂ − x|（滤波 vs 平滑 vs 观测）</h3>
+      <canvas id="cv-err"></canvas>
+      <div class="note">平滑用了全部观测（含未来），误差应系统性低于滤波；观测误差最高。</div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:16px">
+    <h3>本次运行统计</h3>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="panel">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <h3 style="margin:0;font-size:13.5px">8 条不变量自检（浏览器内实时运行）</h3>
+      <button class="primary" id="btn-test">运行自检</button>
+    </div>
+    <table>
+      <thead><tr><th style="width:34px">#</th><th>不变量</th><th style="width:330px">实测</th><th style="width:56px">判定</th></tr></thead>
+      <tbody id="tests"><tr><td colspan="4" style="color:var(--dim)">点击「运行自检」…</td></tr></tbody>
+    </table>
+  </section>
+</main>
+
+<footer>
+  kalman-forge · MIT · 零依赖单文件 · engine 无 DOM 依赖，可用 <code>node _smoke.js</code> 无头复算
+</footer>
+
+<script id="engine">
+/* ==========================================================================
+   kalman-forge engine —— 纯 JS、无 DOM、无依赖
+   模型约定：x_1 ~ N(x0, P0)；x_{t+1} = F x_t + w, w~N(0,Q)；y_t = H x_t + v, v~N(0,R)
+   ========================================================================== */
+globalThis.KF = (function () {
+  'use strict';
+
+  /* ---------------- 线性代数 ---------------- */
+  function zeros(n, m) { var a = new Array(n), i, j; for (i = 0; i < n; i++) { a[i] = new Array(m); for (j = 0; j < m; j++) a[i][j] = 0; } return a; }
+  function eye(n) { var a = zeros(n, n), i; for (i = 0; i < n; i++) a[i][i] = 1; return a; }
+  function clone(a) { return a.map(function (r) { return r.slice(); }); }
+  function tr(a) { var n = a.length, m = a[0].length, r = zeros(m, n), i, j; for (i = 0; i < n; i++) for (j = 0; j < m; j++) r[j][i] = a[i][j]; return r; }
+  function mul(a, b) {
+    var n = a.length, k = b.length, m = b[0].length, r = zeros(n, m), i, j, t;
+    for (i = 0; i < n; i++) for (j = 0; j < m; j++) { var s = 0; for (t = 0; t < k; t++) s += a[i][t] * b[t][j]; r[i][j] = s; }
+    return r;
+  }
+  function mulv(a, v) {
+    var n = a.length, m = a[0].length, r = new Array(n), i, j;
+    for (i = 0; i < n; i++) { var s = 0; for (j = 0; j < m; j++) s += a[i][j] * v[j]; r[i] = s; }
+    return r;
+  }
+  /* add/sub 维度自适应：a[0] 是数字 → 按向量算；否则按矩阵算。
+     （早期版本只支持矩阵，被误用在向量上时 a[0].length===undefined，结果整列变 NaN） */
+  function add(a, b) {
+    var i, j, n, m, r;
+    if (typeof a[0] === 'number') { n = a.length; r = new Array(n); for (i = 0; i < n; i++) r[i] = a[i] + b[i]; return r; }
+    n = a.length; m = a[0].length; r = zeros(n, m);
+    for (i = 0; i < n; i++) for (j = 0; j < m; j++) r[i][j] = a[i][j] + b[i][j];
+    return r;
+  }
+  function sub(a, b) {
+    var i, j, n, m, r;
+    if (typeof a[0] === 'number') { n = a.length; r = new Array(n); for (i = 0; i < n; i++) r[i] = a[i] - b[i]; return r; }
+    n = a.length; m = a[0].length; r = zeros(n, m);
+    for (i = 0; i < n; i++) for (j = 0; j < m; j++) r[i][j] = a[i][j] - b[i][j];
+    return r;
+  }
+  function scl(a, c) { var n = a.length, m = a[0].length, r = zeros(n, m), i, j; for (i = 0; i < n; i++) for (j = 0; j < m; j++) r[i][j] = a[i][j] * c; return r; }
+  function sym(a) { var n = a.length, r = zeros(n, n), i, j; for (i = 0; i < n; i++) for (j = 0; j < n; j++) r[i][j] = 0.5 * (a[i][j] + a[j][i]); return r; }
+  function maxAbsDiff(a, b) {
+    var n = a.length, m = a[0].length, d = 0, i, j;
+    for (i = 0; i < n; i++) for (j = 0; j < m; j++) { var e = Math.abs(a[i][j] - b[i][j]); if (e > d) d = e; }
+    return d;
+  }
+  function maxAbsDiffV(a, b) { var d = 0, i; for (i = 0; i < a.length; i++) { var e = Math.abs(a[i] - b[i]); if (e > d) d = e; } return d; }
+  function quad(A, v) { var n = v.length, s = 0, i, j; for (i = 0; i < n; i++) for (j = 0; j < n; j++) s += v[i] * A[i][j] * v[j]; return s; }
+
+  /** Gauss-Jordan 求逆（部分选主元）；奇异返回 null */
+  function inv(A) {
+    var n = A.length, a = clone(A), b = eye(n), i, j, k, p, mx, tmp;
+    for (k = 0; k < n; k++) {
+      p = k; mx = Math.abs(a[k][k]);
+      for (i = k + 1; i < n; i++) if (Math.abs(a[i][k]) > mx) { mx = Math.abs(a[i][k]); p = i; }
+      if (!(mx > 1e-300)) return null;
+      if (p !== k) { tmp = a[p]; a[p] = a[k]; a[k] = tmp; tmp = b[p]; b[p] = b[k]; b[k] = tmp; }
+      var pv = a[k][k];
+      for (j = 0; j < n; j++) { a[k][j] /= pv; b[k][j] /= pv; }
+      for (i = 0; i < n; i++) {
+        if (i === k) continue; var f = a[i][k]; if (f === 0) continue;
+        for (j = 0; j < n; j++) { a[i][j] -= f * a[k][j]; b[i][j] -= f * b[k][j]; }
+      }
+    }
+    return b;
+  }
+  /** Cholesky：A = L Lᵀ，L 下三角；非正定返回 null */
+  function chol(A) {
+    var n = A.length, L = zeros(n, n), i, j, k, s;
+    for (i = 0; i < n; i++) for (j = 0; j <= i; j++) {
+      s = A[i][j];
+      for (k = 0; k < j; k++) s -= L[i][k] * L[j][k];
+      if (i === j) { if (!(s > 0)) return null; L[i][i] = Math.sqrt(s); }
+      else L[i][j] = s / L[j][j];
+    }
+    return L;
+  }
+  /** 解 L y = b 与 Lᵀ x = y（L 下三角） */
+  function cholSolve(L, b) {
+    var n = b.length, y = new Array(n), x = new Array(n), i, j, s;
+    for (i = 0; i < n; i++) { s = b[i]; for (j = 0; j < i; j++) s -= L[i][j] * y[j]; y[i] = s / L[i][i]; }
+    for (i = n - 1; i >= 0; i--) { s = y[i]; for (j = i + 1; j < n; j++) s -= L[j][i] * x[j]; x[i] = s / L[i][i]; }
+    return x;
+  }
+  function logdet(A) { var L = chol(A); if (!L) return NaN; var s = 0, i; for (i = 0; i < A.length; i++) s += 2 * Math.log(L[i][i]); return s; }
+  function logdetL(L) { var s = 0, i; for (i = 0; i < L.length; i++) s += 2 * Math.log(L[i][i]); return s; }
+  function diag(v) { var n = v.length, a = zeros(n, n), i; for (i = 0; i < n; i++) a[i][i] = v[i]; return a; }
+
+  /* ---------------- 随机 ---------------- */
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function rnorm(rng) { var u = 1 - rng(), v = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+  /** 单个多元正态样本（mu 向量, Cov 矩阵） */
+  function mvn(mu, Cov, rng) {
+    var L = chol(Cov), n = mu.length, z = new Array(n), i, j, out;
+    if (!L) L = chol(add(Cov, scl(eye(n), 1e-12)));
+    for (i = 0; i < n; i++) z[i] = rnorm(rng);
+    out = new Array(n);
+    for (i = 0; i < n; i++) { var s = mu[i]; for (j = 0; j <= i; j++) s += L[i][j] * z[j]; out[i] = s; }
+    return out;
+  }
+  function mvnc(mu, L, rng) {   /* 预分解 Cholesky 的版本 */
+    var n = mu.length, z = new Array(n), out = new Array(n), i, j;
+    for (i = 0; i < n; i++) z[i] = rnorm(rng);
+    for (i = 0; i < n; i++) { var s = mu[i]; for (j = 0; j <= i; j++) s += L[i][j] * z[j]; out[i] = s; }
+    return out;
+  }
+
+  /* ---------------- 模型场景 ---------------- */
+  function sceneRW(q, r) {
+    return { F: [[1]], Q: [[q]], H: [[1]], R: [[r]], x0: [0], P0: [[1]], name: 'rw', n: 1, m: 1, dt: 1 };
+  }
+  function sceneCV(dt, qa, r) {
+    var q = qa;
+    return {
+      F: [[1, dt], [0, 1]],
+      Q: [[q * dt * dt * dt / 3, q * dt * dt / 2], [q * dt * dt / 2, q * dt]],
+      H: [[1, 0]], R: [[r]], x0: [0, 0], P0: [[1, 0], [0, 1]], name: 'cv', n: 2, m: 1, dt: dt
+    };
+  }
+  function sceneRadar(dt, qa, r) {
+    /* 连续白噪声加速度的精确离散化（不是 G·Gᵀ，那个是冲激模型且奇异）：
+       每轴 Q = q·[[dt³/3, dt²/2],[dt²/2, dt]]，det = q²dt⁴/12 > 0 */
+    var q = qa, a = q * dt * dt * dt / 3, b = q * dt * dt / 2, c = q * dt;
+    var Q = zeros(4, 4);
+    Q[0][0] = a; Q[0][2] = b; Q[2][0] = b; Q[2][2] = c;
+    Q[1][1] = a; Q[1][3] = b; Q[3][1] = b; Q[3][3] = c;
+    return {
+      F: [[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]],
+      Q: Q,
+      H: [[1, 0, 0, 0], [0, 1, 0, 0]], R: [[r, 0], [0, r]],
+      x0: [0, 0, 1, 0.4], P0: diag([1, 1, 1, 1]), name: 'radar', n: 4, m: 2, dt: dt
+    };
+  }
+  function scene(key, q, r) {
+    if (key === 'rw') return sceneRW(Math.pow(10, q), Math.pow(10, r));
+    if (key === 'cv') return sceneCV(1, Math.pow(10, q), Math.pow(10, r));
+    return sceneRadar(1, Math.pow(10, q), Math.pow(10, r));
+  }
+
+  /* ---------------- 仿真 ---------------- */
+  function simulate(M, T, rng) {
+    var n = M.F.length, m = M.H.length;
+    var LQ = chol(M.Q), LR = chol(M.R);
+    var X = [], Y = [], t;
+    var x = mvn(M.x0, M.P0, rng);
+    for (t = 0; t < T; t++) {
+      if (t > 0) { var w = mvnc(new Array(n).fill(0), LQ, rng); x = add(mulv(M.F, x), w); }
+      var v = mvnc(new Array(m).fill(0), LR, rng);
+      X.push(x.slice());
+      Y.push(add(mulv(M.H, x), v));
+    }
+    return { X: X, Y: Y };
+  }
+
+  /* ---------------- 卡尔曼滤波（协方差形式，Joseph 稳定化） ---------------- */
+  function kalman(Y, M) {
+    var n = M.F.length, T = Y.length, t;
+    var x = M.x0.slice(), P = clone(M.P0);
+    var xf = [], Pf = [], xp = [], Pp = [], innov = [], S = [], K = [], ll = 0;
+    for (t = 0; t < T; t++) {
+      var xpred, Ppred;
+      if (t === 0) { xpred = M.x0.slice(); Ppred = clone(M.P0); }
+      else { xpred = mulv(M.F, x); Ppred = add(mul(mul(M.F, P), tr(M.F)), M.Q); }
+      Ppred = sym(Ppred);
+      xp.push(xpred); Pp.push(Ppred);
+
+      var y = Y[t];
+      if (y == null) {                       /* 缺测：只预测 */
+        x = xpred.slice(); P = Ppred;
+        xf.push(x.slice()); Pf.push(clone(P)); innov.push(null); S.push(null); K.push(null);
+        continue;
+      }
+      var HP = mul(M.H, Ppred);
+      var Sx = sym(add(mul(HP, tr(M.H)), M.R));
+      var nu = sub(y, mulv(M.H, xpred));
+      var Si = inv(Sx);
+      var Kg = mul(mul(Ppred, tr(M.H)), Si);
+      x = add(xpred, mulv(Kg, nu));
+      /* Joseph form：(I−KH)P(I−KH)ᵀ + K R Kᵀ */
+      var IKH = sub(eye(n), mul(Kg, M.H));
+      P = sym(add(mul(mul(IKH, Ppred), tr(IKH)), mul(mul(Kg, M.R), tr(Kg))));
+
+      var mm = y.length;
+      ll += -0.5 * (mm * Math.log(2 * Math.PI) + logdet(Sx) + quad(Si, nu));
+
+      xf.push(x.slice()); Pf.push(clone(P)); innov.push(nu); S.push(Sx); K.push(Kg);
+    }
+    return { xf: xf, Pf: Pf, xp: xp, Pp: Pp, innov: innov, S: S, K: K, loglik: ll };
+  }
+
+  /* ---------------- 信息滤波（完全不同的数值路径：全程求逆） ---------------- */
+  function infoFilter(Y, M) {
+    var T = Y.length, t;
+    var P = clone(M.P0), x = M.x0.slice();
+    var xf = [], Pf = [], ll = 0;
+    var Rinv = inv(M.R), HtRinv = mul(tr(M.H), Rinv), HtRinvH = mul(HtRinv, M.H);
+    var Qinv = inv(M.Q), FtQinvF = mul(mul(tr(M.F), Qinv), M.F);
+    for (t = 0; t < T; t++) {
+      var xpred, Ppred, Ypred, ypred;
+      if (t === 0) { Ppred = clone(M.P0); xpred = M.x0.slice(); Ypred = inv(Ppred); ypred = mulv(Ypred, xpred); }
+      else {
+        /* 信息滤波的预测：用 Sherman–Morrison 恒等式在信息空间完成，全程不显式构造 P
+             Y_pred = (F Y⁻¹ Fᵀ + Q)⁻¹ = Q⁻¹ − Q⁻¹F (Y + FᵀQ⁻¹F)⁻¹ FᵀQ⁻¹
+             y_pred = Y_pred · F · x                                        */
+        var Yi = inv(P);
+        var inner = inv(add(Yi, FtQinvF));
+        Ypred = sym(sub(Qinv, mul(mul(mul(mul(Qinv, M.F), inner), tr(M.F)), Qinv)));
+        ypred = mulv(Ypred, mulv(M.F, x));
+        Ppred = inv(Ypred);
+        xpred = mulv(Ppred, ypred);
+      }
+      Ppred = sym(Ppred);
+      var y = Y[t];
+      if (y == null) { x = xpred.slice(); P = Ppred; xf.push(x.slice()); Pf.push(clone(P)); continue; }
+      var nu = sub(y, mulv(M.H, xpred));
+      var Sx = sym(add(mul(mul(M.H, Ppred), tr(M.H)), M.R));
+      ll += -0.5 * (y.length * Math.log(2 * Math.PI) + logdet(Sx) + quad(inv(Sx), nu));
+      /* 信息更新：Y ← Y_pred + HᵀR⁻¹H，y ← y_pred + HᵀR⁻¹y */
+      var Ypost = sym(add(Ypred, HtRinvH));
+      var ypost = add(ypred, mulv(HtRinv, y));
+      P = inv(Ypost); x = mulv(P, ypost);
+      xf.push(x.slice()); Pf.push(clone(P));
+    }
+    return { xf: xf, Pf: Pf, loglik: ll };
+  }
+
+  /* ---------------- RTS 平滑 ---------------- */
+  function rts(kf, M) {
+    var T = kf.xf.length, t;
+    var xs = new Array(T), Ps = new Array(T);
+    xs[T - 1] = kf.xf[T - 1].slice(); Ps[T - 1] = clone(kf.Pf[T - 1]);
+    for (t = T - 2; t >= 0; t--) {
+      var Ppinv = inv(kf.Pp[t + 1]);
+      if (Ppinv === null) { xs[t] = kf.xf[t].slice(); Ps[t] = clone(kf.Pf[t]); continue; }
+      var J = mul(mul(kf.Pf[t], tr(M.F)), Ppinv);
+      xs[t] = add(kf.xf[t], mulv(J, sub(xs[t + 1], kf.xp[t + 1])));
+      Ps[t] = sym(add(kf.Pf[t], mul(mul(J, sub(Ps[t + 1], kf.Pp[t + 1])), tr(J))));
+    }
+    return { xs: xs, Ps: Ps };
+  }
+
+  /* ---------------- 批处理后验：块三对角全局线性系统（独立路径） ----------------
+     J(x) = (x₁−x₀)ᵀP₀⁻¹(x₁−x₀) + Σ (x_{t+1}−F x_t)ᵀQ⁻¹(...) + Σ (y_t−H x_t)ᵀR⁻¹(...)
+     A 为块三对角：A[s][s+1] = −FᵀQ⁻¹, A[s+1][s] = −Q⁻¹F                        */
+  function batchPosterior(Y, M) {
+    var n = M.F.length, T = Y.length, t, s, i, j;
+    var Qinv = inv(M.Q), Rinv = inv(M.R), P0inv = inv(M.P0);
+    var FtQinvF = mul(mul(tr(M.F), Qinv), M.F);
+    var FtQinv = mul(tr(M.F), Qinv), QinvvF = mul(Qinv, M.F);
+    var HtRinv = mul(tr(M.H), Rinv), HtRinvH = mul(HtRinv, M.H);
+    var N = n * T, A = zeros(N, N), b = new Array(N).fill(0);
+
+    function blk(t) { return t * n; }
+    for (t = 0; t < T; t++) {
+      var base = blk(t), acc = clone(HtRinvH);
+      if (T > 1) {
+        if (t >= 1) acc = add(acc, Qinv);              /* 作为 x_{s+1} 出现 */
+        if (t <= T - 2) acc = add(acc, FtQinvF);       /* 作为 x_s 出现 */
+      }
+      if (t === 0) acc = add(acc, P0inv);
+      for (i = 0; i < n; i++) for (j = 0; j < n; j++) A[base + i][base + j] = acc[i][j];
+      var rhs = mulv(HtRinv, Y[t]);
+      if (t === 0) rhs = add(rhs, mulv(P0inv, M.x0));
+      for (i = 0; i < n; i++) b[base + i] = rhs[i];
+      if (t <= T - 2) {
+        for (i = 0; i < n; i++) for (j = 0; j < n; j++) {
+          A[base + i][blk(t + 1) + j] = -FtQinv[i][j];
+          A[blk(t + 1) + i][base + j] = -QinvvF[i][j];
+        }
+      }
+    }
+    var Ainv = inv(A);
+    if (Ainv === null) return null;
+    var sol = new Array(N), k;
+    for (k = 0; k < N; k++) { var s2 = 0; for (j = 0; j < N; j++) s2 += Ainv[k][j] * b[j]; sol[k] = s2; }
+    var mean = [], Pt = [], Pcross = [];
+    for (t = 0; t < T; t++) {
+      var v = new Array(n); for (i = 0; i < n; i++) v[i] = sol[blk(t) + i];
+      mean.push(v);
+      var c = zeros(n, n);
+      for (i = 0; i < n; i++) for (j = 0; j < n; j++) c[i][j] = Ainv[blk(t) + i][blk(t) + j];
+      Pt.push(sym(c));
+      if (t >= 1) {
+        /* Cov(x_t, x_{t-1}) —— 注意这个矩阵一般【不】对称，绝不能 sym() */
+        var cc = zeros(n, n);
+        for (i = 0; i < n; i++) for (j = 0; j < n; j++) cc[i][j] = Ainv[blk(t) + i][blk(t - 1) + j];
+        Pcross.push(cc);
+      }
+    }
+    return { mean: mean, Pt: Pt, Pcross: Pcross, A: A, Ainv: Ainv };
+  }
+
+  /* ---------------- 联合高斯对数似然（稠密协方差，独立路径） ---------------- */
+  function jointLoglik(Y, M) {
+    var n = M.F.length, m = M.H.length, T = Y.length, s, t, k, i, j;
+    var Sig = new Array(T);                    /* Sig[s][t] = Cov(x_{s+1}, x_{t+1}) */
+    for (s = 0; s < T; s++) Sig[s] = new Array(T);
+    Sig[0][0] = clone(M.P0);
+    for (t = 1; t < T; t++) Sig[t][t] = add(mul(mul(M.F, Sig[t - 1][t - 1]), tr(M.F)), M.Q);
+    for (t = 0; t < T; t++) for (k = 1; t + k < T; k++) {
+      Sig[t + k][t] = mul(M.F, Sig[t + k - 1][t]);
+      Sig[t][t + k] = tr(Sig[t + k][t]);
+    }
+    var mu = new Array(T), muY = new Array(T);
+    mu[0] = M.x0.slice();
+    for (t = 1; t < T; t++) mu[t] = mulv(M.F, mu[t - 1]);
+    for (t = 0; t < T; t++) muY[t] = mulv(M.H, mu[t]);
+    var N = m * T, C = zeros(N, N), yv = new Array(N);
+    for (s = 0; s < T; s++) for (t = 0; t < T; t++) {
+      var blk = mul(mul(M.H, Sig[s][t]), tr(M.H));
+      if (s === t) blk = add(blk, M.R);
+      for (i = 0; i < m; i++) for (j = 0; j < m; j++) C[s * m + i][t * m + j] = blk[i][j];
+    }
+    for (t = 0; t < T; t++) for (i = 0; i < m; i++) yv[t * m + i] = Y[t][i] - muY[t][i];
+    var L = chol(C); if (!L) return NaN;
+    var sol = cholSolve(L, yv);
+    var q = 0; for (k = 0; k < N; k++) q += yv[k] * sol[k];
+    return -0.5 * (N * Math.log(2 * Math.PI) + logdetL(L) + q);
+  }
+
+  /* ---------------- 稳态：迭代 Riccati → DARE 不动点 ---------------- */
+  function steadyState(M, tol, maxIt) {
+    tol = tol || 1e-14; maxIt = maxIt || 20000;
+    var it, d = Infinity, K = null, Pf = null;
+    /* 在「预测协方差」上迭代 Riccati：Pp ← F(Pp − K H Pp)Fᵀ + Q, K = Pp Hᵀ(H Pp Hᵀ + R)⁻¹ */
+    var Pp = sym(add(mul(mul(M.F, M.P0), tr(M.F)), M.Q));
+    for (it = 0; it < maxIt; it++) {
+      var Sx = add(mul(mul(M.H, Pp), tr(M.H)), M.R);
+      var Si = inv(Sx); if (Si === null) break;
+      K = mul(mul(Pp, tr(M.H)), Si);
+      Pf = sym(sub(Pp, mul(mul(K, M.H), Pp)));
+      var Pn = sym(add(mul(mul(M.F, Pf), tr(M.F)), M.Q));
+      d = maxAbsDiff(Pn, Pp); Pp = Pn;
+      if (d < tol) break;
+    }
+    var S2 = add(mul(mul(M.H, Pp), tr(M.H)), M.R);
+    K = mul(mul(Pp, tr(M.H)), inv(S2));
+    Pf = sym(sub(Pp, mul(mul(K, M.H), Pp)));
+    var resid = maxAbsDiff(Pp, sym(add(mul(mul(M.F, Pf), tr(M.F)), M.Q)));
+    return { P: Pf, Ppred: Pp, K: K, iters: it, resid: resid };
+  }
+
+  /* ---------------- EM 学习 (Q, R)：E 步用批处理后验的精确二阶矩 ---------------- */
+  function em(Y, M, opts) {
+    opts = opts || {};
+    var iters = opts.iters || 25, T = Y.length, n = M.F.length, m = M.H.length, t, i, j;
+    var Mcur = { F: M.F, Q: clone(M.Q), H: M.H, R: clone(M.R), x0: M.x0, P0: M.P0, n: n, m: m };
+    var hist = [], Qs = [], Rs = [];
+    for (var it = 0; it < iters; it++) {
+      var bp = batchPosterior(Y, Mcur);
+      if (!bp) break;
+      /* E[x_t x_tᵀ] / E[x_{t+1} x_tᵀ] */
+      var sumQ = zeros(n, n), sumR = zeros(m, m);
+      for (t = 0; t < T; t++) {
+        var xt = bp.mean[t], Ett = add(bp.Pt[t], outer(xt, xt));
+        var HR = sub(repmatVec(Y[t]), mulv(Mcur.H, xt));
+        sumR = add(sumR, add(outer(HR, HR), mul(mul(Mcur.H, bp.Pt[t]), tr(Mcur.H))));
+        if (t >= 1) {
+          var xp = bp.mean[t - 1], Pc = bp.Pcross[t - 1];
+          var Ecur_prev = add(Pc, outer(xt, xp));       /* E[x_t x_{t-1}ᵀ] */
+          var Eprev_cur = tr(Ecur_prev);
+          var Eprev = add(bp.Pt[t - 1], outer(xp, xp));
+          var term = sub(add(Ett, mul(mul(Mcur.F, Eprev), tr(Mcur.F))),
+                         add(mul(Ecur_prev, tr(Mcur.F)), mul(Mcur.F, Eprev_cur)));
+          sumQ = add(sumQ, term);
+        }
+      }
+      var Qn = sym(scl(sumQ, 1 / (T - 1)));
+      var Rn = sym(scl(sumR, 1 / T));
+      /* 保正定 */
+      Qn = add(Qn, scl(eye(n), 1e-12)); Rn = add(Rn, scl(eye(m), 1e-12));
+      Mcur.Q = Qn; Mcur.R = Rn;
+      var ll = kalman(Y, Mcur).loglik;
+      hist.push(ll); Qs.push(clone(Qn)); Rs.push(clone(Rn));
+    }
+    return { M: Mcur, hist: hist, Qs: Qs, Rs: Rs, iters: hist.length };
+  }
+  function outer(a, b) {
+    var n = a.length, m = b.length, r = zeros(n, m), i, j;
+    for (i = 0; i < n; i++) for (j = 0; j < m; j++) r[i][j] = a[i] * b[j];
+    return r;
+  }
+  function repmatVec(v) { return v.slice(); }
+
+  /* ---------------- 粒子滤波（bootstrap / SIR，系统重采样） ---------------- */
+  function particleFilter(Y, M, N, rng) {
+    var n = M.F.length, m = M.H.length, T = Y.length, t, i, j;
+    var LQ = chol(M.Q), LR = chol(M.R), Rinv = inv(M.R);
+    var zeroN = new Array(n).fill(0);
+    var p = new Array(N), w = new Array(N), lw = new Array(N);
+    for (i = 0; i < N; i++) p[i] = mvn(M.x0, M.P0, rng);
+    var means = [], covs = [], essHist = [];
+    for (t = 0; t < T; t++) {
+      if (t > 0) for (i = 0; i < N; i++) p[i] = add(mulv(M.F, p[i]), mvnc(zeroN, LQ, rng));
+      /* 权重 */
+      var mx = -Infinity;
+      for (i = 0; i < N; i++) {
+        var r = sub(Y[t], mulv(M.H, p[i]));
+        lw[i] = -0.5 * quad(Rinv, r);
+        if (lw[i] > mx) mx = lw[i];
+      }
+      var ssum = 0;
+      for (i = 0; i < N; i++) { w[i] = Math.exp(lw[i] - mx); ssum += w[i]; }
+      var ess = 0;
+      for (i = 0; i < N; i++) { w[i] /= ssum; }
+      for (i = 0; i < N; i++) ess += w[i] * w[i];
+      essHist.push(1 / ess);
+      /* 均值 / 协方差 */
+      var mu = new Array(n).fill(0);
+      for (i = 0; i < N; i++) for (j = 0; j < n; j++) mu[j] += w[i] * p[i][j];
+      var C = zeros(n, n);
+      for (i = 0; i < N; i++) for (j = 0; j < n; j++) {
+        var d0 = p[i][j] - mu[j];
+        for (var k2 = 0; k2 < n; k2++) C[j][k2] += w[i] * d0 * (p[i][k2] - mu[k2]);
+      }
+      means.push(mu.slice()); covs.push(sym(C));
+      /* 系统重采样 */
+      var cdf = new Array(N), acc = 0;
+      for (i = 0; i < N; i++) { acc += w[i]; cdf[i] = acc; }
+      var u0 = rng() / N, np = new Array(N), q = 0;
+      for (i = 0; i < N; i++) {
+        var u = u0 + i / N;
+        while (q < N - 1 && cdf[q] < u) q++;
+        np[i] = p[q].slice();
+      }
+      p = np;
+    }
+    return { mean: means, cov: covs, ess: essHist };
+  }
+
+  /* ---------------- 诊断 ---------------- */
+  function nis(kf) {
+    var out = [], t;
+    for (t = 0; t < kf.innov.length; t++) {
+      if (kf.innov[t] == null) { out.push(null); continue; }
+      out.push(quad(inv(kf.S[t]), kf.innov[t]));
+    }
+    return out;
+  }
+  function mean(a) { var s = 0, i; for (i = 0; i < a.length; i++) s += a[i]; return s / a.length; }
+  function rmse(est, truth, comp) {
+    var s = 0, t, n = 0;
+    for (t = 0; t < truth.length; t++) {
+      if (est[t] == null) continue;
+      var d = est[t][comp] - truth[t][comp]; s += d * d; n++;
+    }
+    return Math.sqrt(s / n);
+  }
+  /** 归一化新息的 lag-1 自相关（白噪声应 ≈ 0） */
+  function innovLag1(kf) {
+    var z = [], t;
+    for (t = 0; t < kf.innov.length; t++) {
+      if (kf.innov[t] == null) continue;
+      var L = chol(kf.S[t]); if (!L) continue;
+      z.push(cholSolve(L, kf.innov[t])[0]);
+    }
+    var mu = mean(z), num = 0, den = 0, i;
+    for (i = 0; i < z.length; i++) den += (z[i] - mu) * (z[i] - mu);
+    for (i = 1; i < z.length; i++) num += (z[i] - mu) * (z[i - 1] - mu);
+    return den > 0 ? num / den : 0;
+  }
+  /** 新息样本协方差 vs 理论 S（应一致） */
+  function innovCovCheck(kf) {
+    var m = kf.S[0].length, Ssum = zeros(m, m), Nsum = zeros(m, m), n = 0, t, i, j;
+    for (t = 0; t < kf.innov.length; t++) {
+      if (kf.innov[t] == null) continue;
+      n++;
+      Ssum = add(Ssum, kf.S[t]);
+      Nsum = add(Nsum, outer(kf.innov[t], kf.innov[t]));
+    }
+    var Sbar = scl(Ssum, 1 / n), Nbar = scl(Nsum, 1 / n);
+    var rel = 0;
+    for (i = 0; i < m; i++) for (j = 0; j < m; j++) {
+      var den = Math.abs(Sbar[i][j]) > 1e-12 ? Math.abs(Sbar[i][j]) : 1;
+      rel = Math.max(rel, Math.abs(Nbar[i][j] - Sbar[i][j]) / den);
+    }
+    return { rel: rel, n: n, samp: Sbar, emp: Nbar };
+  }
+
+  /* ---------------- χ² 分位数（Wilson–Hilferty 近似，足够画图） ---------------- */
+  function chi2Quantile(p, df) {
+    /* 用二分法求 P(X<=x)=p，X~χ²(df) */
+    function cdf(x) { return gammainc(df / 2, x / 2); }
+    var lo = 1e-8, hi = 1, mid;
+    while (cdf(hi) < p) hi *= 2;
+    for (var i = 0; i < 90; i++) { mid = 0.5 * (lo + hi); if (cdf(mid) < p) lo = mid; else hi = mid; }
+    return 0.5 * (lo + hi);
+  }
+  function gammainc(a, x) {         /* 正则化下不完全 Gamma P(a,x) */
+    if (x <= 0) return 0;
+    if (x < a + 1) return gser(a, x); else return 1 - gcf(a, x);
+  }
+  function gser(a, x) {
+    var ap = a, sum = 1 / a, del = sum, n, gln = lgamma(a);
+    for (n = 1; n < 500; n++) {
+      ap++; del *= x / ap; sum += del;
+      if (Math.abs(del) < Math.abs(sum) * 1e-14) break;
+    }
+    return sum * Math.exp(-x + a * Math.log(x) - gln);
+  }
+  function gcf(a, x) {
+    var gln = lgamma(a), b = x + 1 - a, c = 1e300, d = 1 / b, h = d, i, an, del;
+    for (i = 1; i < 500; i++) {
+      an = -i * (i - a); b += 2; d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300;
+      c = b + an / c; if (Math.abs(c) < 1e-300) c = 1e-300;
+      d = 1 / d; del = d * c; h *= del;
+      if (Math.abs(del - 1) < 1e-14) break;
+    }
+    return Math.exp(-x + a * Math.log(x) - gln) * h;
+  }
+  function lgamma(x) {
+    var c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155,
+             0.1208650973866179e-2, -0.5395239384953e-5];
+    var y = x, tmp = x + 5.5; tmp -= (x + 0.5) * Math.log(tmp);
+    var ser = 1.000000000190015, j;
+    for (j = 0; j < 6; j++) ser += c[j] / ++y;
+    return -tmp + Math.log(2.5066282746310005 * ser / x);
+  }
+
+  /* ==========================================================================
+     8 条不变量自检（浏览器与 Node 共用同一份实现）
+     ========================================================================== */
+  function selfTest() {
+    var out = [], i, t;
+    function add(name, detail, pass) { out.push({ name: name, detail: detail, pass: !!pass }); }
+
+    /* --- 1. 卡尔曼滤波 == 信息滤波（两条独立数值路径） --- */
+    (function () {
+      var M = sceneCV(1, 0.35, 0.8), rng = mulberry32(11), sim = simulate(M, 60, rng);
+      var kf = kalman(sim.Y, M), inf = infoFilter(sim.Y, M);
+      var dm = 0, dP = 0;
+      for (t = 0; t < 60; t++) {
+        dm = Math.max(dm, maxAbsDiffV(kf.xf[t], inf.xf[t]));
+        dP = Math.max(dP, maxAbsDiff(kf.Pf[t], inf.Pf[t]));
+      }
+      var dl = Math.abs(kf.loglik - inf.loglik) / Math.abs(kf.loglik);
+      add('① 卡尔曼滤波 == 信息滤波（协方差传播 vs 全程求逆）',
+          'max|Δx| = ' + dm.toExponential(2) + '，max|ΔP| = ' + dP.toExponential(2) + '，ΔlogL/L = ' + dl.toExponential(2),
+          dm < 1e-8 && dP < 1e-8 && dl < 1e-10);
+    })();
+
+    /* --- 2. 递推滤波 + RTS == 批处理块三对角全局后验 --- */
+    (function () {
+      var M = sceneCV(1, 0.35, 0.8), rng = mulberry32(23), sim = simulate(M, 40, rng);
+      var kf = kalman(sim.Y, M), sm = rts(kf, M), bp = batchPosterior(sim.Y, M);
+      var dm = 0, dP = 0;
+      for (t = 0; t < 40; t++) {
+        dm = Math.max(dm, maxAbsDiffV(sm.xs[t], bp.mean[t]));
+        dP = Math.max(dP, maxAbsDiff(sm.Ps[t], bp.Pt[t]));
+      }
+      add('② 滤波+RTS == 批处理块三对角全局后验（μ 与 Σ 全对拍）',
+          'T=40, n=2 → 80×80 稠密系统；max|Δμ| = ' + dm.toExponential(2) + '，max|ΔΣ| = ' + dP.toExponential(2),
+          dm < 1e-9 && dP < 1e-9);
+    })();
+
+    /* --- 3. 新息诊断：样本协方差 == 理论 S、NIS ≈ m、白噪声 --- */
+    (function () {
+      var M = sceneRadar(1, 0.2, 1.2), rng = mulberry32(31), sim = simulate(M, 1500, rng);
+      var kf = kalman(sim.Y, M);
+      var ic = innovCovCheck(kf);
+      var nv = nis(kf).filter(function (v) { return v != null; });
+      var mn = mean(nv), m = M.H.length, r1 = innovLag1(kf);
+      add('③ 最优性：新息样本协方差 == S，NIS ≈ m，滞后1自相关 ≈ 0',
+          'max|ΔΣ/S| = ' + (ic.rel * 100).toFixed(2) + '%（T=' + ic.n + '）；⟨NIS⟩ = ' + mn.toFixed(3) +
+          '（χ²(' + m + ') 均值 ' + m + '）；ρ₁ = ' + r1.toFixed(4),
+          ic.rel < 0.12 && Math.abs(mn - m) / m < 0.12 && Math.abs(r1) < 0.08);
+    })();
+
+    /* --- 4. 序列对数似然 == 联合高斯稠密协方差对数似然 --- */
+    (function () {
+      var M = sceneCV(1, 0.35, 0.8), rng = mulberry32(47), sim = simulate(M, 40, rng);
+      var seq = kalman(sim.Y, M).loglik, jnt = jointLoglik(sim.Y, M);
+      var rel = Math.abs(seq - jnt) / Math.abs(jnt);
+      add('④ 序列 log L（新息分解）== 联合高斯 log L（T·m 维稠密 Cholesky）',
+          '序列 ' + seq.toFixed(10) + ' vs 联合 ' + jnt.toFixed(10) + '，相对差 ' + rel.toExponential(2),
+          rel < 1e-9);
+    })();
+
+    /* --- 5. RTS 平滑方差 ≤ 滤波方差，且平滑 RMSE < 滤波 RMSE --- */
+    (function () {
+      var M = sceneCV(1, 0.35, 0.8);
+      var worstV = -Infinity, rf = 0, rs = 0, trials = 6, c;
+      for (c = 0; c < trials; c++) {
+        var sim = simulate(M, 120, mulberry32(100 + c));
+        var kf = kalman(sim.Y, M), sm = rts(kf, M);
+        for (t = 0; t < 120; t++) {
+          for (i = 0; i < M.n; i++) worstV = Math.max(worstV, sm.Ps[t][i][i] - kf.Pf[t][i][i]);
+        }
+        rf += rmse(kf.xf, sim.X, 0); rs += rmse(sm.xs, sim.X, 0);
+      }
+      rf /= trials; rs /= trials;
+      add('⑤ 平滑信息单调：Var(平滑) ≤ Var(滤波)，且平滑 RMSE < 滤波 RMSE',
+          'max(Σ_s − Σ_f) = ' + worstV.toExponential(2) + '（须 ≤0）；RMSE 滤波 ' + rf.toFixed(4) +
+          ' → 平滑 ' + rs.toFixed(4) + '（' + trials + ' 次平均）',
+          worstV <= 1e-12 && rs < rf);
+    })();
+
+    /* --- 6. 稳态 Riccati == DARE 不动点 == 长跑时变增益极限 --- */
+    (function () {
+      var M = sceneCV(1, 0.35, 0.8);
+      var ss = steadyState(M, 1e-15, 20000);
+      var sim = simulate(M, 400, mulberry32(59));
+      var kf = kalman(sim.Y, M);
+      var dK = maxAbsDiff(kf.K[399], ss.K);
+      add('⑥ Riccati 迭代收敛到 DARE 不动点，且 == 长跑时变增益极限',
+          ss.iters + ' 轮收敛，DARE 残差 = ' + ss.resid.toExponential(2) +
+          '；|K₄₀₀ − K∞| = ' + dK.toExponential(2),
+          ss.resid < 1e-10 && dK < 1e-10);
+    })();
+
+    /* --- 7. EM 学习 (Q,R)：边际似然单调非减 + 参数还原 --- */
+    (function () {
+      var truth = sceneCV(1, 0.35, 0.8);
+      var sim = simulate(truth, 200, mulberry32(73));
+      var start = sceneCV(1, 0.35 * 0.2, 0.8 * 5);   /* 故意给错的初值 */
+      var r = em(sim.Y, start, { iters: 30 });
+      var minD = Infinity;
+      for (i = 1; i < r.hist.length; i++) minD = Math.min(minD, r.hist[i] - r.hist[i - 1]);
+      var truthLL = kalman(sim.Y, truth).loglik, endLL = r.hist[r.hist.length - 1];
+      var qh = r.M.Q[1][1], qstar = truth.Q[1][1], rh = r.M.R[0][0], rstar = truth.R[0][0];
+      var eq = Math.abs(Math.log(qh / qstar)), er = Math.abs(Math.log(rh / rstar));
+      add('⑦ EM 学习 Q,R：边际似然单调非减，且终点似然 ≥ 真值参数似然',
+          'min Δ = ' + minD.toExponential(2) + '（' + r.iters + ' 轮 ' + r.hist[0].toFixed(2) + ' → ' +
+          endLL.toFixed(2) + '，真值参数 ' + truthLL.toFixed(2) + '）；q̂ ' + qh.toExponential(2) +
+          ' → q* ' + qstar.toExponential(2) + '（|log| ' + eq.toFixed(2) + '），r̂ ' + rh.toExponential(2) +
+          '（|log| ' + er.toFixed(2) + '）',
+          minD > -1e-6 && endLL >= truthLL - 1e-6 && eq < 0.5 && er < 0.4);
+    })();
+
+    /* --- 8. 粒子滤波 → 卡尔曼滤波（Monte-Carlo 1/√N 收敛） --- */
+    (function () {
+      var M = sceneCV(1, 0.35, 0.8), T = 40;
+      var sim = simulate(M, T, mulberry32(97));
+      var kf = kalman(sim.Y, M);
+      var Ns = [100, 400, 1600], errs = [], seeds = 3;
+      Ns.forEach(function (N) {
+        var acc = 0;
+        for (var s = 0; s < seeds; s++) {
+          var pf = particleFilter(sim.Y, M, N, mulberry32(1000 + s));
+          var e = 0, n = 0;
+          for (t = 0; t < T; t++) { e += Math.abs(pf.mean[t][0] - kf.xf[t][0]); n++; }
+          acc += e / n;
+        }
+        errs.push(acc / seeds);
+      });
+      /* log-log 斜率（理论 −0.5） */
+      var sx = 0, sy = 0, sxx = 0, sxy = 0, k;
+      for (k = 0; k < Ns.length; k++) { var lx = Math.log(Ns[k]), ly = Math.log(errs[k]); sx += lx; sy += ly; sxx += lx * lx; sxy += lx * ly; }
+      var slope = (Ns.length * sxy - sx * sy) / (Ns.length * sxx - sx * sx);
+      add('⑧ 粒子滤波 → 卡尔曼滤波（线性高斯下的 1/√N 收敛）',
+          '平均 |μ_PF − μ_KF|：' + errs.map(function (e) { return e.toFixed(4); }).join(' → ') +
+          '（N = 100/400/1600，' + seeds + ' 个种子平均）；log-log 斜率 ' + slope.toFixed(3) + '（理论 −0.5）',
+          slope < -0.2 && slope > -0.9 && errs[2] < errs[0]);
+    })();
+
+    return out;
+  }
+
+  return {
+    /* 线代 */
+    zeros: zeros, eye: eye, clone: clone, tr: tr, mul: mul, mulv: mulv, add: add, sub: sub,
+    scl: scl, sym: sym, inv: inv, chol: chol, cholSolve: cholSolve, logdet: logdet, diag: diag,
+    quad: quad, outer: outer, maxAbsDiff: maxAbsDiff, maxAbsDiffV: maxAbsDiffV,
+    /* 随机 */
+    mulberry32: mulberry32, rnorm: rnorm, mvn: mvn,
+    /* 模型 */
+    sceneRW: sceneRW, sceneCV: sceneCV, sceneRadar: sceneRadar, scene: scene, simulate: simulate,
+    /* 算法 */
+    kalman: kalman, infoFilter: infoFilter, rts: rts, batchPosterior: batchPosterior,
+    jointLoglik: jointLoglik, steadyState: steadyState, em: em, particleFilter: particleFilter,
+    /* 诊断 */
+    nis: nis, mean: mean, rmse: rmse, innovLag1: innovLag1, innovCovCheck: innovCovCheck,
+    chi2Quantile: chi2Quantile, gammainc: gammainc, lgamma: lgamma,
+    selfTest: selfTest
+  };
+})();
+</script>
+
+<script id="ui">
+if (typeof document === 'undefined') { /* Node: 跳过 UI */ } else {
+(function () {
+  'use strict';
+  var K = globalThis.KF;
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { scene: 'cv', q: -1, r: 0, mis: 0, X: null, Y: null, kf: null, sm: null, M: null, Mtrue: null };
+
+  function setupCanvas(cv, h) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = cv.clientWidth || 600; h = h || 220;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+      cv.style.height = h + 'px';
+    }
+    var c = cv.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = '#fff'; c.fillRect(0, 0, w, h);
+    return { c: c, w: w, h: h };
+  }
+
+  function rebuild(resample) {
+    var Mtrue = K.scene(state.scene, state.q, state.r);
+    var T = state.scene === 'radar' ? 120 : 160;
+    if (resample || !state.X) {
+      var rng = K.mulberry32(2026);
+      var sim = K.simulate(Mtrue, T, rng);
+      state.X = sim.X; state.Y = sim.Y;
+    }
+    state.Mtrue = Mtrue;
+    state.M = K.scene(state.scene, state.q + state.mis, state.r + state.mis);
+    state.kf = K.kalman(state.Y, state.M);
+    state.sm = K.rts(state.kf, state.M);
+    draw();
+  }
+
+  function draw() {
+    drawMain(); drawInnov(); drawNIS(); drawErr(); drawStats();
+  }
+
+  function axes(g, pad) {
+    var c = g.c, W = g.w, H = g.h;
+    pad = pad || { l: 40, r: 10, t: 10, b: 22 };
+    c.strokeStyle = '#e3e6ec'; c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(pad.l, pad.t); c.lineTo(pad.l, H - pad.b); c.lineTo(W - pad.r, H - pad.b);
+    c.stroke();
+    return { x0: pad.l, y0: H - pad.b, x1: W - pad.r, y1: pad.t };
+  }
+
+  function drawMain() {
+    var g = setupCanvas($('cv-main')), c = g.c, W = g.w, H = g.h;
+    var X = state.X, Y = state.Y, kf = state.kf, sm = state.sm, M = state.M;
+    var T = X.length;
+    if (M.name === 'radar') {
+      /* xy 平面 */
+      var xs = X.map(function (v) { return v[0]; }), ys = X.map(function (v) { return v[1]; });
+      var ox = Y.map(function (v) { return v[0]; }), oy = Y.map(function (v) { return v[1]; });
+      var fx = kf.xf.map(function (v) { return v[0]; }), fy = kf.xf.map(function (v) { return v[1]; });
+      var sx = sm.xs.map(function (v) { return v[0]; }), sy = sm.xs.map(function (v) { return v[1]; });
+      var all = xs.concat(ys, ox, oy, fx, fy);
+      var lo = Math.min.apply(null, all), hi = Math.max.apply(null, all), pad = 26;
+      var sc = Math.min((W - 2 * pad) / (hi - lo || 1), (H - 2 * pad) / (hi - lo || 1));
+      function px(a) { return pad + (a - lo) * sc; }
+      function py(a) { return H - pad - (a - lo) * sc; }
+      c.fillStyle = '#fff';
+      /* 2σ 椭圆（每 8 步） */
+      for (var t = 0; t < T; t += 8) {
+        var P = kf.Pf[t];
+        var a = P[0][0], b = P[0][1], d = P[1][1];
+        var tr2 = a + d, det = a * d - b * b;
+        var l1 = (tr2 + Math.sqrt(Math.max(0, tr2 * tr2 - 4 * det))) / 2;
+        var l2 = (tr2 - Math.sqrt(Math.max(0, tr2 * tr2 - 4 * det))) / 2;
+        var ang = 0.5 * Math.atan2(2 * b, a - d);
+        c.save();
+        c.translate(px(fx[t]), py(fy[t])); c.rotate(-ang);
+        c.beginPath();
+        c.ellipse(0, 0, 2 * Math.sqrt(Math.max(l1, 0)) * sc, 2 * Math.sqrt(Math.max(l2, 0)) * sc, 0, 0, Math.PI * 2);
+        c.fillStyle = 'rgba(219,234,254,.55)'; c.fill();
+        c.restore();
+      }
+      line(c, xs.map(px), ys.map(py), '#9ca3af', 1.6);
+      dots(c, ox.map(px), oy.map(py), '#dc2626', 2);
+      line(c, fx.map(px), fy.map(py), '#2563eb', 1.8);
+      line(c, sx.map(px), sy.map(py), '#059669', 1.8, [5, 4]);
+      $('h-main').textContent = '状态轨迹（x–y 平面，蓝底椭圆 = 滤波 2σ 不确定度）';
+    } else {
+      var a2 = axes(g);
+      var comp = 0;
+      var tv = X.map(function (v) { return v[comp]; });
+      var ov = Y.map(function (v) { return v[comp]; });
+      var fv = kf.xf.map(function (v) { return v[comp]; });
+      var sv = sm.xs.map(function (v) { return v[comp]; });
+      var lo2 = Math.min.apply(null, tv.concat(ov, fv)), hi2 = Math.max.apply(null, tv.concat(ov, fv));
+      var mrg = (hi2 - lo2) * 0.12 || 1; lo2 -= mrg; hi2 += mrg;
+      function XX(t) { return a2.x0 + t / (T - 1) * (a2.x1 - a2.x0); }
+      function YY(v) { return a2.y0 - (v - lo2) / (hi2 - lo2) * (a2.y0 - a2.y1); }
+      /* ±2σ 带 */
+      c.beginPath();
+      for (var t2 = 0; t2 < T; t2++) c.lineTo(XX(t2), YY(fv[t2] + 2 * Math.sqrt(kf.Pf[t2][comp][comp])));
+      for (var t3 = T - 1; t3 >= 0; t3--) c.lineTo(XX(t3), YY(fv[t3] - 2 * Math.sqrt(kf.Pf[t3][comp][comp])));
+      c.closePath(); c.fillStyle = 'rgba(219,234,254,.75)'; c.fill();
+      line(c, tv.map(function (v, i) { return XX(i); }), tv.map(YY), '#9ca3af', 1.6);
+      dots(c, ov.map(function (v, i) { return XX(i); }), ov.map(YY), '#dc2626', 1.7);
+      line(c, fv.map(function (v, i) { return XX(i); }), fv.map(YY), '#2563eb', 1.8);
+      line(c, sv.map(function (v, i) { return XX(i); }), sv.map(YY), '#059669', 1.8, [5, 4]);
+      $('h-main').textContent = '状态轨迹（分量 x₁：位置）';
+    }
+  }
+
+  function line(c, X, Y, color, w, dash) {
+    c.save(); c.strokeStyle = color; c.lineWidth = w || 1.5;
+    if (dash) c.setLineDash(dash);
+    c.beginPath();
+    for (var i = 0; i < X.length; i++) { if (i === 0) c.moveTo(X[i], Y[i]); else c.lineTo(X[i], Y[i]); }
+    c.stroke(); c.restore();
+  }
+  function dots(c, X, Y, color, r) {
+    c.fillStyle = color;
+    for (var i = 0; i < X.length; i++) { c.beginPath(); c.arc(X[i], Y[i], r, 0, Math.PI * 2); c.fill(); }
+  }
+
+  function drawInnov() {
+    var g = setupCanvas($('cv-inn')), c = g.c, W = g.w, H = g.h, a = axes(g);
+    var kf = state.kf, T = kf.innov.length, t;
+    var vals = [], sig = [];
+    for (t = 0; t < T; t++) { vals.push(kf.innov[t][0]); sig.push(2 * Math.sqrt(kf.S[t][0][0])); }
+    var mx = 0;
+    for (t = 0; t < T; t++) mx = Math.max(mx, Math.abs(vals[t]) + sig[t]);
+    mx = mx || 1;
+    function XX(i) { return a.x0 + i / (T - 1) * (a.x1 - a.x0); }
+    function YY(v) { return a.y0 - (v + mx) / (2 * mx) * (a.y0 - a.y1); }
+    c.beginPath();
+    for (t = 0; t < T; t++) c.lineTo(XX(t), YY(sig[t]));
+    for (t = T - 1; t >= 0; t--) c.lineTo(XX(t), YY(-sig[t]));
+    c.closePath(); c.fillStyle = 'rgba(219,234,254,.7)'; c.fill();
+    /* 零线 */
+    c.strokeStyle = '#c9ced8'; c.setLineDash([3, 3]); c.beginPath();
+    c.moveTo(a.x0, YY(0)); c.lineTo(a.x1, YY(0)); c.stroke(); c.setLineDash([]);
+    line(c, vals.map(function (v, i) { return XX(i); }), vals.map(YY), '#2563eb', 1.2);
+    c.fillStyle = '#6b7280'; c.font = '11px sans-serif';
+    c.fillText('±' + (2 * Math.sqrt(kf.S[Math.floor(T / 2)][0][0])).toFixed(2), a.x0 + 4, a.y1 + 10);
+  }
+
+  function drawNIS() {
+    var g = setupCanvas($('cv-nis')), c = g.c, W = g.w, H = g.h, a = axes(g);
+    var kf = state.kf, m = state.M.H.length, T = kf.innov.length;
+    var nv = K.nis(kf), t;
+    var lo = K.chi2Quantile(0.025, m), hi = K.chi2Quantile(0.975, m);
+    var mx = 0; for (t = 0; t < T; t++) mx = Math.max(mx, nv[t]);
+    mx = Math.max(mx, hi) * 1.15;
+    function XX(i) { return a.x0 + i / (T - 1) * (a.x1 - a.x0); }
+    function YY(v) { return a.y0 - v / mx * (a.y0 - a.y1); }
+    c.fillStyle = 'rgba(209,250,229,.6)';
+    c.fillRect(a.x0, YY(hi), a.x1 - a.x0, YY(lo) - YY(hi));
+    c.strokeStyle = '#059669'; c.setLineDash([4, 3]); c.beginPath();
+    c.moveTo(a.x0, YY(hi)); c.lineTo(a.x1, YY(hi));
+    c.moveTo(a.x0, YY(lo)); c.lineTo(a.x1, YY(lo)); c.stroke(); c.setLineDash([]);
+    dots(c, nv.map(function (v, i) { return XX(i); }), nv.map(YY), '#7c3aed', 1.6);
+    var inside = 0; for (t = 0; t < T; t++) if (nv[t] >= lo && nv[t] <= hi) inside++;
+    c.fillStyle = '#6b7280'; c.font = '11px sans-serif';
+    c.fillText('95% 区间 [' + lo.toFixed(2) + ', ' + hi.toFixed(2) + ']', a.x0 + 4, a.y1 + 10);
+    var frac = inside / T;
+    $('nis-note').innerHTML = '模型正确时约 95% 的点应落在区间内 —— 本次 <b>' + (frac * 100).toFixed(1) +
+      '%</b>（' + inside + '/' + T + '），⟨NIS⟩ = ' + K.mean(nv).toFixed(3) + '（χ²(' + m + ') 均值 ' + m + '）。' +
+      (frac < 0.85 ? ' <span style="color:#dc2626">⚠ 明显偏低 → 滤波器对自身的噪声假设过于自信（噪声倍率偏小）或模型误配。</span>' : '');
+  }
+
+  function drawErr() {
+    var g = setupCanvas($('cv-err')), c = g.c, W = g.w, H = g.h, a = axes(g);
+    var X = state.X, Y = state.Y, kf = state.kf, sm = state.sm, T = X.length, t;
+    var ef = [], es = [], eo = [];
+    for (t = 0; t < T; t++) {
+      ef.push(Math.abs(kf.xf[t][0] - X[t][0]));
+      es.push(Math.abs(sm.xs[t][0] - X[t][0]));
+      eo.push(Math.abs(Y[t][0] - X[t][0]));
+    }
+    var mx = 0; for (t = 0; t < T; t++) mx = Math.max(mx, ef[t], es[t], eo[t]);
+    mx = mx || 1;
+    function XX(i) { return a.x0 + i / (T - 1) * (a.x1 - a.x0); }
+    function YY(v) { return a.y0 - v / mx * (a.y0 - a.y1); }
+    line(c, eo.map(function (v, i) { return XX(i); }), eo.map(YY), '#f3b6b6', 1);
+    line(c, ef.map(function (v, i) { return XX(i); }), ef.map(YY), '#2563eb', 1.5);
+    line(c, es.map(function (v, i) { return XX(i); }), es.map(YY), '#059669', 1.5);
+    c.fillStyle = '#6b7280'; c.font = '11px sans-serif';
+    c.fillText('红=观测 蓝=滤波 绿=平滑', a.x0 + 4, a.y1 + 10);
+  }
+
+  function drawStats() {
+    var X = state.X, kf = state.kf, sm = state.sm, M = state.M;
+    var rf = K.rmse(kf.xf, X, 0), rs = K.rmse(sm.xs, X, 0);
+    var nv = K.nis(kf), mn = K.mean(nv), m = M.H.length;
+    var r1 = K.innovLag1(kf);
+    var ro = 0, T = X.length;
+    for (var t = 0; t < T; t++) ro += (state.Y[t][0] - X[t][0]) * (state.Y[t][0] - X[t][0]);
+    ro = Math.sqrt(ro / T);
+    $('stats').innerHTML =
+      box('RMSE 观测', ro.toFixed(4)) + box('RMSE 滤波', rf.toFixed(4)) +
+      box('RMSE 平滑', rs.toFixed(4)) + box('平滑提升', ((1 - rs / rf) * 100).toFixed(1) + '%') +
+      box('⟨NIS⟩ / m', (mn / m).toFixed(3)) + box('滞后1自相关 ρ₁', r1.toFixed(4)) +
+      box('log L', kf.loglik.toFixed(2)) + box('T / n / m', T + ' / ' + M.F.length + ' / ' + m);
+    $('miswarn').innerHTML = Math.abs(state.mis) > 1e-9
+      ? '<div class="warn">⚠ 滤波器假设的噪声与真值相差 10^' + state.mis.toFixed(2) +
+        ' 倍 —— 新息将不再是白噪声，NIS 会系统性偏离 χ²(m)，滤波 RMSE 也会变差。这正是「模型误配可被新息检验诊断」的演示。</div>'
+      : '';
+  }
+  function box(label, val) {
+    return '<div class="stat"><span>' + label + '</span><b>' + val + '</b></div>';
+  }
+
+  function runTests() {
+    var tb = $('tests');
+    tb.innerHTML = '<tr><td colspan="4" style="color:var(--dim)">运行中…</td></tr>';
+    setTimeout(function () {
+      var res = K.selfTest(), html = '', i;
+      for (i = 0; i < res.length; i++) {
+        html += '<tr><td>' + (i + 1) + '</td><td>' + res[i].name + '</td>' +
+          '<td class="num" style="white-space:normal">' + res[i].detail + '</td>' +
+          '<td class="' + (res[i].pass ? 'ok' : 'bad') + '">' + (res[i].pass ? '✓ PASS' : '✗ FAIL') + '</td></tr>';
+      }
+      var np = res.filter(function (r) { return r.pass; }).length;
+      html += '<tr><td></td><td><b>合计</b></td><td class="num"><b>' + np + ' / ' + res.length + ' 通过</b></td>' +
+        '<td class="' + (np === res.length ? 'ok' : 'bad') + '"><b>' + (np === res.length ? '全绿' : '有失败') + '</b></td></tr>';
+      tb.innerHTML = html;
+    }, 20);
+  }
+
+  $('sel-scene').onchange = function () { state.scene = this.value; rebuild(true); };
+  $('inp-q').oninput = function () { state.q = +this.value; $('v-q').textContent = '1e' + state.q.toFixed(2); rebuild(true); };
+  $('inp-r').oninput = function () { state.r = +this.value; $('v-r').textContent = '1e' + state.r.toFixed(2); rebuild(true); };
+  $('inp-mis').oninput = function () { state.mis = +this.value; $('v-mis').textContent = '×' + Math.pow(10, state.mis).toFixed(2); rebuild(false); };
+  $('btn-run').onclick = function () { rebuild(true); };
+  $('btn-em').onclick = function () {
+    var b = this; b.disabled = true; b.textContent = 'EM 迭代中…';
+    setTimeout(function () {
+      var start = K.scene(state.scene, state.q + 1.2, state.r - 1.0);
+      var r = K.em(state.Y, start, { iters: 15 });
+      var minD = Infinity;
+      for (var i = 1; i < r.hist.length; i++) minD = Math.min(minD, r.hist[i] - r.hist[i - 1]);
+      var ll0 = K.kalman(state.Y, start).loglik;
+      alert('EM 学习结果（初值故意设错 10^1.2 / 10^-1.0）\n\n' +
+        'log L: ' + r.hist[0].toFixed(2) + ' → ' + r.hist[r.hist.length - 1].toFixed(2) +
+        '（min Δ = ' + minD.toExponential(2) + '，EM 定理要求 ≥ 0）\n\n' +
+        '真实 q = ' + state.Mtrue.Q[state.Mtrue.Q.length - 1][state.Mtrue.Q.length - 1].toExponential(3) +
+        '  →  学习 q̂ = ' + r.M.Q[r.M.Q.length - 1][r.M.Q.length - 1].toExponential(3) + '\n' +
+        '真实 r = ' + state.Mtrue.R[0][0].toExponential(3) +
+        '  →  学习 r̂ = ' + r.M.R[0][0].toExponential(3));
+      b.disabled = false; b.textContent = 'EM 学习 Q,R';
+    }, 30);
+  };
+  $('btn-test').onclick = runTests;
+  window.addEventListener('resize', function () { draw(); });
+
+  $('v-q').textContent = '1e' + state.q.toFixed(2);
+  $('v-r').textContent = '1e' + state.r.toFixed(2);
+  $('v-mis').textContent = '×' + Math.pow(10, state.mis).toFixed(2);
+  rebuild(true);
+})();
+}
+</script>
+</body>
+</html>
