@@ -1,0 +1,32 @@
+name: ci
+
+# Headless invariant self-check for the single-file HTML lab: the same
+# `_smoke.js` a developer runs locally, executed on a clean machine.
+# Author: 晨星
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: headless self-check (node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Invariant self-check (_smoke.js)
+        run: node _smoke.js
