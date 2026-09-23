@@ -1,5 +1,12 @@
 # kalman-forge · 卡尔曼滤波与平滑实验室
 
+<p align="center">
+  <a href="https://github.com/CJX0712/kalman-forge/actions/workflows/ci.yml"><img src="https://github.com/CJX0712/kalman-forge/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/CJX0712/kalman-forge/releases"><img src="https://img.shields.io/github/v/release/CJX0712/kalman-forge?sort=semver" alt="release"></a>
+  <a href="https://github.com/CJX0712/kalman-forge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/CJX0712/kalman-forge" alt="license"></a>
+  <img src="https://img.shields.io/badge/author-%E6%99%A8%E6%98%9F-1f6feb" alt="author">
+</p>
+
 线性高斯状态空间模型（Linear-Gaussian SSM）的**精确**贝叶斯推断，零依赖单文件 HTML。
 核心卖点不是"画个滤波曲线"，而是**同一条后验用四条互相独立的数值路径算出来互相对拍**：
 
